@@ -11,6 +11,7 @@ namespace AIPokerPlayer
     /// <summary>
     /// this class holds the values the affect hands before the first card is revealed in the game
     /// the class is serializeable and is saved to the disk after every round
+    /// Written by Scott Boyce
     /// </summary>
     [Serializable()]
     public class PreFlopMultiplierValues : ISerializable
@@ -148,7 +149,7 @@ namespace AIPokerPlayer
 
         public double getAverageMultiplier()
         {
-            return (suitedMultiplier + pairMultiplier + lowStraightChanceMultiplier + highStraightChanceMultiplier + highCardMultiplier + doubleHighCardMultiplier)/7;
+            return (suitedMultiplier + pairMultiplier + lowStraightChanceMultiplier + highStraightChanceMultiplier + highCardMultiplier + doubleHighCardMultiplier)/10;
         }
     }
 }

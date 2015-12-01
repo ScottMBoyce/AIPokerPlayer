@@ -12,7 +12,7 @@ using AIPokerPlayer.Poker.Cards;
 
 namespace AIPokerPlayer.Poker
 {
-    // Written by Scott Boyce and Alex Ciaramella
+    // Written by Scott Boyce and Alex Ciaramella, Mike Middleton
     public class Game
     {
         // all players who are still in the game with a chip count > 0
@@ -52,6 +52,8 @@ namespace AIPokerPlayer.Poker
 
         //Gets the current round we on
         public Round getCurrentRound() { return currentRound; }
+        //get active player list
+        public List<Player> getActivePlayerList() { return activePlayers; }
 
         // keep looping through rounds until a winner is determined
         // returns the winner
