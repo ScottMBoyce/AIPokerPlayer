@@ -34,6 +34,8 @@ namespace AIPokerPlayer.Players
         EvalResult currentHandValue;
         List<Move> possibleMoves;
         List<Player> players;
+        int numRaisesThisRound;
+        int round;
 
         public AIPlayer(string name, int startingChipCount, int position)
             : base(name, startingChipCount, position)
@@ -52,6 +54,8 @@ namespace AIPokerPlayer.Players
                 preFlopMultiplierValues = new PreFlopMultiplierValues();
             }
             handEval = new HandEvaluator();
+            // always start with pre-flop
+            round = 0;
 
         }
 
@@ -63,14 +67,49 @@ namespace AIPokerPlayer.Players
             stream.Close();
         }
 
-        public override Move requestAction(List<Move> possibleMoves)
+        public override Move requestAction(List<Move> possibleMoves, List<Player> players)
         {
             this.possibleMoves = possibleMoves;
-            //return new Check();
-            throw new NotImplementedException();
+            this.players = players;
+            numRaisesThisRound = 0;
+
+            return getMoveBasedOnRound();
             //call appropriate action method based on where we are in the round
         }
 
+        /// <summary>
+        /// Returns the pre-flop action for round = 0, post-flop action for round = 1 || round = 2, and post-river action for round =3
+        /// </summary>
+        /// <returns></returns>
+        public Move getMoveBasedOnRound()
+        {
+            switch (round)
+            {
+                case 0:
+                    {
+                        round++;
+                        return preFlopAction();
+                    }
+                case 1:
+                    {
+                        round++;
+                        return postFlopAction();
+                    }
+                case 2:
+                    {
+                        round++;
+                        return postFlopAction();
+                    }
+                case 3:
+                    {
+                        round++;
+                        return postRiverAction();
+                    }
+            }
+            // something went wrong and we lost our track of what position in the game we are
+            // fold our hand
+            return new Fold();
+        }
 
         //*****these action methods may be better as a class so we can store information since it is likly there will be multiple rounds of betting 
         //it would probably be better use to classes to store the data then doing it inside this class
@@ -146,24 +185,78 @@ namespace AIPokerPlayer.Players
                 // check if our current contribution to the pot is a low percentage of our chip count 
                 // check how far off of the highest our contribution is (given in Call if it exists, if it does not then we are the contribution leader)
                 // check how many players remain
+                if (players.Count < 3)
+                {
+                    // since there are so few players, all still in probably have decent hands and will call any bet
+                    // raise to put more money into the pot but not a large bet
+                    raiseAmount += Convert.ToInt32(getChipCount() * .1);
+                }
+                else // there are still a lot of players remaining in this round of betting
+                {
+                    // since there are still a lot of players in this round we will make a larger bet to force out weaker hands that may
+                    // end up beating us if they stick around for too long with a lucky flop/river
+                    raiseAmount += Convert.ToInt32(getChipCount() * .2);
+                }
 
+                // we can be aggressive if we have a solid ranking in the chip leaderboard and if we have not already raised twice this round
+                if (getChipCount() / highestChips > .85 && numRaisesThisRound < 3)
+                {
+                    // we are the chip leader or very close and there are few players remaining
+                    // play aggressively
+                    numRaisesThisRound++;
+                    return new Raise(raiseAmount);
+                }
+                else
+                // either we are not high on the chip leaderboard or we have raised enough this round already
+                // check whether we should call or check this hand
+                {
+                    // if we can check for free and we are not high on chips let's test the waters before diving all in
+                    if (!canCall)
+                        return new Check();
+                    else
+                    {
+                        // we have a really strong hand and probably cannot afford to give it up and hope for a better one which may not come
+                        // even if the call makes us go all in let's try for it since we have a good shot at winning
+                        return new Call(callAmount);
+                    }
+                }
             }
             //above average playable hand
             else if (value > preFlopMultiplierValues.getAverageMultiplier() * 1.5)
             {
                 // we may want to raise here. most likely want to call assumming the call amount is not a huge percentage of our chips
+
+                // if there are only a few players remaining then we should call and try to stay in the pot since our chances are good
+                if(players.Count < 3)
+                {
+                    return new Call(callAmount);
+                }
+                else
+                // if there are a lot of players left then we should raise in order to force out weaker hands
+                {
+                    // only raise if we havent already this round
+                    if (numRaisesThisRound < 1)
+                    {
+                        raiseAmount += Convert.ToInt32(getChipCount() * .1);
+                        numRaisesThisRound++;
+                        return new Raise(raiseAmount);
+                    }
+                    else
+                        return new Call(callAmount);
+                }
             }
             //slightly above average playable hand
             else if (value > preFlopMultiplierValues.getAverageMultiplier() * 1.25)
             {
                 // make a small raise if we are currently the chip leader for the given hand or the difference between our chip stacks is small
                 
-                // check if our stack is at least 75% of the leader's stack
-                if(getChipCount()/highestChips > .75)
+                // check if our stack is at least 75% of the leader's stack and we have not raised this round yet
+                if(getChipCount()/highestChips > .75 && numRaisesThisRound < 1)
                 {
                     // we can try to bully the opponents
                     // bet 10% of our chips
                     raiseAmount +=  Convert.ToInt32(getChipCount() * .1);
+                    numRaisesThisRound++;
                     return new Raise(raiseAmount);
                 }
                 // otherwise call or check depending on the call amount
@@ -263,12 +356,122 @@ namespace AIPokerPlayer.Players
         /// may need hand/ possible actions(moves) as a param/s
         /// will return a move that we want to preform
         /// </summary>
-        public void postFlopAction()
+        public Move postFlopAction()
         {
             List<Card> fiveCardHand = new List<Card>();
             fiveCardHand.AddRange(playerHand);
-            fiveCardHand.AddRange(CardsOnBoard);
             currentHandValue = handEval.evaluateHand(fiveCardHand);
+            List<Card> boardCards = new List<Card>();
+            Boolean likelyToImproveHand = false;
+            for(int i = 2; i < playerHand.Count; i++)
+            {
+                boardCards.Add(playerHand[i]);
+            }
+            EvalResult boardValue = handEval.evaluateHand(boardCards);
+
+            //If theres a huge difference between the strength of my hand + board and just the board, we generally have a strong hand
+            //For example if the best hand on the board is a pair, and my best with my hand is a pair, we have the same evaluation and its likely that other players do aswell
+            if(currentHandValue.getHandValue() >= boardValue.getHandValue())
+            {
+                int likelyNextHandValue = getMostLikelyNextHandValue();
+                if(likelyNextHandValue > currentHandValue.getHandValue())//if we are likely to get a good hand value
+                {
+                    likelyToImproveHand = true; //this will be used to skew the evalutationDifference
+                }
+                int evalDifference = currentHandValue.getHandValue() - boardValue.getHandValue();
+                if(likelyToImproveHand)//if we are likely to improve our hand, up the difference by 1
+                {
+                    evalDifference++;
+                }
+                Boolean canRaise = false;
+                Boolean canCall = false;
+                int raiseAmount = 1;
+                int callAmount = 1;
+                int highestChips = 0;
+
+                // check which player in the list has the highest chips
+                // the list of players will contain all other players still in the hand, excluding ourself
+                foreach (Player player in players)
+                {
+                    if (player.getChipCount() > highestChips)
+                        highestChips = player.getChipCount();
+                }
+
+                // check if we are allowed to raise or call this turn
+                // if we can, retrieve the minimum amounts associated with these actions
+                foreach (Move move in possibleMoves)
+                {
+                    if (move is Raise)
+                    {
+                        raiseAmount = ((Raise)move).getMinimumRaise();
+                        canRaise = true;
+                    }
+                    else if (move is Call)
+                    {
+                        callAmount = ((Call)move).getCallAmount();
+                        canCall = true;
+                    }
+                }
+
+                if (evalDifference >= 3)//significant strength compared to board, bully opponent
+                {
+                    if (getChipCount() / highestChips > .75)
+                    {
+                        // we can try to bully the opponents
+                        // bet a base of 10% of our chips
+                        // hand strength is up to 8, add up to handStrength% of chips: 8 = 18% of our chips
+                        raiseAmount += Convert.ToInt32(getChipCount() * (.1 + (((double)currentHandValue.getHandValue())/100)));
+                        return new Raise(raiseAmount);
+                    }
+                    // otherwise call or check depending on the call amount
+                    if (!canCall)
+                        return new Check();
+                    else
+                    {
+                        // if the call amount is less than 10% of our chips, then 
+                        if (getChipCount() / callAmount > 20)
+                        {
+                            return new Call(callAmount);
+                        }
+
+                        else
+                            return new Fold();
+                    }
+                }
+                else if(evalDifference > 0)//moderate strength
+                {
+                    // if we are unable to call then we can check for free
+                    if (!canCall)
+                    {
+                        return new Check();
+                    }
+                    // if the call is a small percentage of our chips then make it
+                    else if (canCall && getChipCount() / callAmount < .05)
+                    {
+                        return new Call(callAmount);
+                    }
+                    else
+                    {
+                        return new Fold();
+                    }
+                    
+                }
+                else //our hand strength is basically that of whats on the board i.e. not strong
+                {
+                    // check if possible. if not then fold
+                    if (!canCall)
+                        return new Check();
+                    // checking is not an option, fold
+                    return new Fold();
+                }
+            }
+            else
+            {
+                //I dont think its possible a board value alone is stronger than (board + hand value) ever..
+                return null; // again this should really never be reached
+            }
+            
+
             // at this point we have a good idea of what our hand is going to be or can possibly be
             // have a logic block that determines what move to make based on the returns from the 2 methods below
             // may also consider if the player(s) are prone to bluffing
@@ -320,8 +523,113 @@ namespace AIPokerPlayer.Players
         /// <summary>
         /// choose a move to preform after the river card has been shown
         /// </summary>
-        public void postRiverAction()
+        public Move postRiverAction()
         {
+            List<Card> fiveCardHand = new List<Card>();
+            fiveCardHand.AddRange(playerHand);
+            currentHandValue = handEval.evaluateHand(fiveCardHand);
+            List<Card> boardCards = new List<Card>();
+            for (int i = 2; i < playerHand.Count; i++)
+            {
+                boardCards.Add(playerHand[i]);
+            }
+            EvalResult boardValue = handEval.evaluateHand(boardCards);
+
+            //If theres a huge difference between the strength of my hand + board and just the board, we generally have a strong hand
+            //For example if the best hand on the board is a pair, and my best with my hand is a pair, we have the same evaluation and its likely that other players do aswell
+            if (currentHandValue.getHandValue() >= boardValue.getHandValue())
+            {
+                int evalDifference = currentHandValue.getHandValue() - boardValue.getHandValue();
+                Boolean canRaise = false;
+                Boolean canCall = false;
+                int raiseAmount = 1;
+                int callAmount = 1;
+                int highestChips = 0;
+
+                // check which player in the list has the highest chips
+                // the list of players will contain all other players still in the hand, excluding ourself
+                foreach (Player player in players)
+                {
+                    if (player.getChipCount() > highestChips)
+                        highestChips = player.getChipCount();
+                }
+
+                // check if we are allowed to raise or call this turn
+                // if we can, retrieve the minimum amounts associated with these actions
+                foreach (Move move in possibleMoves)
+                {
+                    if (move is Raise)
+                    {
+                        raiseAmount = ((Raise)move).getMinimumRaise();
+                        canRaise = true;
+                    }
+                    else if (move is Call)
+                    {
+                        callAmount = ((Call)move).getCallAmount();
+                        canCall = true;
+                    }
+                }
+
+                if (evalDifference >= 3)//significant strength compared to board, bully opponent
+                {
+                    if (getChipCount() / highestChips > .75)
+                    {
+                        // we can try to bully the opponents
+                        // bet 10% of our chips
+                        raiseAmount += Convert.ToInt32(getChipCount() * .1);
+                        return new Raise(raiseAmount);
+                    }
+                    // otherwise call or check depending on the call amount
+                    if (!canCall)
+                        return new Check();
+                    else
+                    {
+                        // if the call amount is less than 10% of our chips, then 
+                        if (getChipCount() / callAmount > 20)
+                        {
+                            return new Call(callAmount);
+                        }
+
+                        else
+                            return new Fold();
+                    }
+                }
+                else if (evalDifference > 0)//moderate strength
+                {
+                    // if we are unable to call then we can check for free
+                    if (!canCall)
+                    {
+                        return new Check();
+                    }
+                    // if the call is a small percentage of our chips then make it
+                    else if (canCall && getChipCount() / callAmount < .05)
+                    {
+                        return new Call(callAmount);
+                    }
+                    else
+                    {
+                        return new Fold();
+                    }
+
+                }
+                else //our hand strength is basically that of whats on the board i.e. not strong
+                {
+                    // check if possible. if not then fold
+                    if (!canCall)
+                        return new Check();
+                    // checking is not an option, fold
+                    return new Fold();
+                }
+            }
+            else
+            {
+                //I dont think its possible a board value alone is stronger than (board + hand value) ever..
+                return null;
+            }
+
+            // Now we know what our best hand is and know that another player either has a good hand or is bluffing since in almost all hands that get here we plan to bet(excluding the possible case were our hand is bad and we keep checkin)
+            // again we will use isOurHandLiklyBetterThanAnyOtherPlayers to determine if our hand is better and we will bet accordingly
+            // here we must again consider bluffing and our aggression level based on relative chip count(our compared to the players at the table
             
         }
 
@@ -352,8 +660,8 @@ namespace AIPokerPlayer.Players
         /// used to reset round specific variables after each round
         /// </summary>
         public void resetRoundBasedVariables()
-        { 
-        
+        {
+            round = 0;
         }
     }
 
