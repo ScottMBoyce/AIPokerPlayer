@@ -1,12 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using AIPokerPlayer.Poker.Cards;
 using AIPokerPlayer.Poker.Moves;
 using AIPokerPlayer.Poker;
-using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.IO;
 
@@ -112,8 +108,9 @@ namespace AIPokerPlayer.Players
             return new Fold();
         }
 
-        //*****these action methods may be better as a class so we can store information since it is likly there will be multiple rounds of betting 
-        //it would probably be better use to classes to store the data then doing it inside this class
+        //determines what to do in the preFlop Stage of the game
+        //What we do at this point in the game will be based on our preFlopHandValue using the multipliers from which we learn from
+        //will return a move that we want to preform based on our judgement from past preFlop hands that we have had
         public Move preFlopAction()
         {
             //Code to set up booleans based on given hand
@@ -204,7 +201,7 @@ namespace AIPokerPlayer.Players
                 }
 
                 // we can be aggressive if we have a solid ranking in the chip leaderboard and if we have not already raised twice this round
-                if (getChipCount() / highestChips > .85 && numRaisesThisRound < 3)
+                if ( ( ( getChipCount() / highestChips ) > .85 ) && numRaisesThisRound < 3)
                 {
                     // we are the chip leader or very close and there are few players remaining
                     // play aggressively
@@ -260,7 +257,7 @@ namespace AIPokerPlayer.Players
                 // make a small raise if we are currently the chip leader for the given hand or the difference between our chip stacks is small
                 
                 // check if our stack is at least 75% of the leader's stack and we have not raised this round yet
-                if(getChipCount()/highestChips > .75 && numRaisesThisRound < 1)
+                if( ( ( getChipCount()/highestChips) > .75 ) && numRaisesThisRound < 1)
                 {
                     // we can try to bully the opponents
                     // bet 10% of our chips
@@ -276,7 +273,7 @@ namespace AIPokerPlayer.Players
                 else
                 {
                     // if the call amount is less than 10% of our chips, then 
-                    if (getChipCount() / callAmount > 20)
+                    if ((callAmount / getChipCount()) > .10)
                     {
                         return new Call(callAmount);
                     }
@@ -297,7 +294,7 @@ namespace AIPokerPlayer.Players
                     return new Check();
                 }
                 // if the call is a small percentage of our chips then make it
-                else if(canCall && getChipCount()/callAmount > 20)
+                else if (canCall && (callAmount / getChipCount()) > .05)
                 {
                     return new Call(callAmount);
                 }
@@ -364,8 +361,9 @@ namespace AIPokerPlayer.Players
 
         /// <summary>
         /// determines what to do in any round of betting between the flop and the turn
-        /// may need hand/ possible actions(moves) as a param/s
-        /// will return a move that we want to preform
+        /// We use getMostLikelyNextHandValue() in order to determine if we stand a good chance of improving our hand, this result will tell us how to make our next move
+        /// Moderate code is re-used from preFlopAction() however we have to take additional information into account when deciding our move so it is necessary
+        /// will return a move that we want to preform based on our judgement of the known cards
         /// </summary>
         public Move postFlopAction()
         {
@@ -487,34 +485,28 @@ namespace AIPokerPlayer.Players
                 //I dont think its possible a board value alone is stronger than (board + hand value) ever..
                 return null; // again this should really never be reached
             }
-            
-
-            // at this point we have a good idea of what our hand is going to be or can possibly be
-            // have a logic block that determines what move to make based on the returns from the 2 methods below
-            // may also consider if the player(s) are prone to bluffing
-            // may act different based on number of chip or an aggression attribute
-            // learning could affect the action taken
-
         }
 
         /// <summary>
         /// using our current hand (the five cards we currently see, hand + flop) determine what we have
-        /// than compare that to what any other player is likly to have(only has to be done once for any number of players since both players have unknown cards)
-        /// **scoring could be affected by learing 
+        /// than create another hand for each possible draw and evaluate the hand. Vote based on the evaluation what kind of hand we will have for all possible hands
+        /// The highest voted hand, for example two pair could be the most common hand value, will be returned. This will allow us to judge how good our hand can get
         /// </summary>
-        /// <returns>return a rating based on the comparison, greather than 1 we likly have the better hand, less than one we likly have the worse hand </returns>
+        /// <returns>int, returns the hand value which is most likely to occur after we draw a card. </returns>
         public int getMostLikelyNextHandValue()
         {
             //Probability probCalc = new Probability();
             //Brute Force -- 1 Card ahead, evaluate all possible Hands
             List<Card> possibleHand;
             Dictionary<int, int> result = new Dictionary<int, int>();
-            for(int i = 0; i <= 8; i++)
+            for(int i = 0; i <= 8; i++)//add the votes into our dictionary, starts at 0 for each hand value
             {
                 result.Add(i, 0);
             }
+
             EvalResult currentResult;
-            foreach (Suit enumSuit in Enum.GetValues(typeof(Suit)))
+
+            foreach (Suit enumSuit in Enum.GetValues(typeof(Suit))) //For every possible hand we can have on the next draw, evaluate it, and vote the handValue into our dictionary
             {
                 foreach (Value enumValue in Enum.GetValues(typeof(Value)))
                 {
@@ -524,12 +516,14 @@ namespace AIPokerPlayer.Players
                     result[currentResult.getHandValue()] += 1;
                 }
             }
-            int mostLikelyHandValue = 0;
+
+            int mostLikelyHandValue = 0;//our return, initial 0 since that is worst/most common
+
             foreach(int key in result.Keys)
             {
                 if(result[key] > result[mostLikelyHandValue])
                 {
-                    mostLikelyHandValue = key;
+                    mostLikelyHandValue = key; //If our dictionary tells us another hand is more common, set the likely value to it
                 }
             }
 
@@ -538,7 +532,9 @@ namespace AIPokerPlayer.Players
 
 
         /// <summary>
-        /// choose a move to preform after the river card has been shown
+        /// Choose a move to preform after the river card has been shown.
+        /// We do not need to take into account future hands at this point because this is the final move for the round
+        /// return the move we want to make at this point
         /// </summary>
         public Move postRiverAction()
         {
@@ -608,7 +604,7 @@ namespace AIPokerPlayer.Players
                     else
                     {
                         // if the call amount is less than 10% of our chips, then 
-                        if (getChipCount() / callAmount > 20)
+                        if ((callAmount / getChipCount()) > .10)
                         {
                             return new Call(callAmount);
                         }
@@ -625,7 +621,7 @@ namespace AIPokerPlayer.Players
                         return new Check();
                     }
                     // if the call is a small percentage of our chips then make it
-                    else if (canCall && getChipCount() / callAmount < .05)
+                    else if (canCall && (callAmount / getChipCount()) > .05)
                     {
                         return new Call(callAmount);
                     }

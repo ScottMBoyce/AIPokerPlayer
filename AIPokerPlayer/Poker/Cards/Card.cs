@@ -4,7 +4,7 @@ using System.IO;
 
 namespace AIPokerPlayer.Poker.Cards
 {
-    // Written by Scott Boyce
+    // Written by Scott Boyce, Mike Middleton
 
     // enum of card value
     public enum Value { Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten, Jack, Queen, King, Ace };

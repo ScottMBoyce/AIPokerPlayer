@@ -12,7 +12,7 @@ using AIPokerPlayer.Poker.Cards;
 
 namespace AIPokerPlayer.Poker
 {
-    // Written by Scott Boyce and Alex Ciaramella
+    // Written by Scott Boyce and Alex Ciaramella, Mike Middleton
     public class Game
     {
         // all players who are still in the game with a chip count > 0
